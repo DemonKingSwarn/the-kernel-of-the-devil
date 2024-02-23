@@ -1,10 +1,18 @@
 global start
 extern long_mode_start
 
+section .data
+    ; VGA text mode buffer
+    vga_buffer: equ 0xB8000
+    ; VGA graphics mode buffer
+    vga_graphics_buffer: equ 0xA0000
+    ; Current position in the text buffer
+    text_pos: dq 0
+
 section .text
-bits 32
+bits 64
 start:
-    mov esp, stack_top
+    mov rsp, stack_top
 
     call check_multiboot
     call check_cpuid
@@ -16,11 +24,10 @@ start:
     lgdt [gdt64.pointer]
     jmp gdt64.code_segment:long_mode_start
 
-
-    hlt 
+    hlt
 
 check_multiboot:
-    cmp eax, 0x36d76289
+    cmp rax, 0x36d76289
     jne .no_multiboot
     ret
 .no_multiboot:
@@ -28,17 +35,17 @@ check_multiboot:
     jmp error
 
 check_cpuid:
-    pushfd
-    pop eax
-    mov ecx, eax
-    xor eax, 1 << 21
-    push eax
-    popfd
-    pushfd
-    pop eax
-    push ecx
-    popfd
-    cmp eax, ecx
+    pushfq
+    pop rax
+    mov rcx, rax
+    xor rax, 1 << 21
+    push rax
+    popfq
+    pushfq
+    pop rax
+    push rcx
+    popfq
+    cmp rax, rcx
     je .no_cpuid
     ret
 .no_cpuid:
@@ -46,14 +53,14 @@ check_cpuid:
     jmp error
 
 check_long_mode:
-    mov eax, 0x80000000
+    mov rax, 0x80000000
     cpuid
-    cmp eax, 0x80000001
+    cmp rax, 0x80000001
     jb .no_long_mode
 
-    mov eax, 0x80000001
+    mov rax, 0x80000001
     cpuid
-    test edx, 1 << 29
+    test rdx, 1 << 29
     jz .no_long_mode
     ret
 .no_long_mode:
@@ -61,59 +68,82 @@ check_long_mode:
     jmp error
 
 setup_page_tables:
-    mov eax, page_table_l3
-    or eax, 0b11 ; present, writable
-    mov [page_table_l4], eax
+    mov rax, page_table_l3
+    or rax, 0b11 ; present, writable
+    mov [page_table_l4], rax
 
-    mov eax, page_table_l2
-    or eax, 0b11 ; present, writable
-    mov [page_table_l3], eax
+    mov rax, page_table_l2
+    or rax, 0b11 ; present, writable
+    mov [page_table_l3], rax
 
-    mov ecx, 0 ; counter
+    mov rcx, 0 ; counter
 .loop:
 
-    mov eax, 0x200000 ; 2MiB
-    mul ecx
-    or eax, 0b10000011 ; present, writable, huge page
-    mov [page_table_l2 + ecx * 8], eax
+    mov rax, 0x200000 ; 2MiB
+    mul rcx
+    or rax, 0b10000011 ; present, writable, huge page
+    mov [page_table_l2 + rcx * 8], rax
 
-    inc  ecx ; increment counter
-    cmp ecx, 512 ; checks if the whole table is mapped
-    jne .loop ; if not, continue 
+    inc  rcx ; increment counter
+    cmp rcx, 512 ; checks if the whole table is mapped
+    jne .loop ; if not, continue
 
     ret
 
 enable_paging:
     ; pass page table location to cpu
-    mov eax, page_table_l4
-    mov cr3, eax
+    mov rax, page_table_l4
+    mov cr3, rax
 
-    ; enable PAE 
-    mov eax, cr4
-    or eax, 1 << 5
-    mov cr4, eax
+    ; enable PAE
+    mov rax, cr4
+    or rax, 1 << 5
+    mov cr4, rax
 
     ; enable long mode
-    mov ecx, 0xC0000080
+    mov rcx, 0xC0000080
     rdmsr
-    or eax, 1 << 8
+    or rax, 1 << 8
     wrmsr
 
     ; enable paging
-    mov eax, cr0
-    or eax, 1 << 31
-    mov cr0, eax
+    mov rax, cr0
+    or rax, 1 << 31
+    mov cr0, rax
 
     ret
 
 error:
-    ; print "ERR: X" where X is the error code 
+    ; print "ERR: X" where X is the error code
     mov dword [0xb8000], 0x4f524f45
     mov dword [0xb8004], 0x4f3a4f52
     mov dword [0xb8008], 0x4f204f20
     mov byte [0xb800a], al
-    hlt 
+    hlt
 
+    ; Function to write a character to the VGA text buffer
+    ; Input: al = character, ah = color
+    write_char:
+        mov [vga_buffer + text_pos], ax
+        add text_pos, 2
+        ret
+
+    ; Function to set a pixel in VGA mode 13h
+    ; Input: ax = x, bx = y, cl = color
+    set_pixel:
+        ; Calculate the offset in the buffer
+        ; (y * 320 + x)
+        imul rdx, rbx, 320
+        add rdx, rax
+        ; Set the pixel
+        mov [vga_graphics_buffer + rdx], cl
+        ret
+
+    ; Function to switch to VGA mode 13h
+    set_mode_13h:
+        mov ax, 0x0013
+        int 0x10
+        ret
 
 section .bss
 align 4096
@@ -130,8 +160,8 @@ stack_top:
 section .rodata
 gdt64:
     dq 0 ; zero entry
-.code_segment: equ $ - gdt64 
+.code_segment: equ $ - gdt64
     dq (1 << 43) | (1 << 44) | (1 << 47) | (1 << 53) ; code segment
 .pointer:
     dw $ - gdt64 - 1
-    dq gdt64
+    dq gdt64%

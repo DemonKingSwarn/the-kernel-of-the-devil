@@ -67,6 +67,10 @@ void print_char(char character) {
 }
 
 void print_str(char* str) {
+    if (str == NULL) {
+        return;
+    }
+
     for (size_t i = 0; 1; i++) {
         char character = (uint8_t) str[i];
 
@@ -81,3 +85,52 @@ void print_str(char* str) {
 void print_set_color(uint8_t foreground, uint8_t background) {
     color = foreground + (background << 4);
 }
+
+void print_int(int num) {
+  if (num == 0) {
+    print_char('0');
+    return;
+  }
+
+  int abs_num = num > 0 ? num : -num;
+  char buffer[10];
+  int i = 0;
+
+  while (abs_num > 0) {
+    buffer[i++] = (abs_num % 10) + '0';
+    abs_num /= 10;
+  }
+
+  if (num < 0) {
+    print_char('-');
+  }
+
+  while (--i >= 0) {
+    print_char(buffer[i]);
+  }
+}
+
+void print_float(float num) {
+    int integer_part = (int)num;
+    print_int(integer_part);
+
+    print_char('.');
+
+    float fractional_part = num - integer_part;
+    for (int i = 0; i < 6; ++i) {  // print up to 6 decimal places
+        fractional_part *= 10;
+        int digit = (int)fractional_part;
+        print_char('0' + digit);
+        fractional_part -= digit;
+    }
+}
+
+void print_hex(uint32_t num) {
+    print_str("0x");
+
+    char hex_digits[] = "0123456789ABCDEF";
+    for (int i = 28; i >= 0; i -= 4) {
+        uint8_t digit = (num >> i) & 0xF;
+        print_char(hex_digits[digit]);
+    }
+}%
