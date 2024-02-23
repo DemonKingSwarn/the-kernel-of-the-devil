@@ -133,4 +133,4 @@ void print_hex(uint32_t num) {
         uint8_t digit = (num >> i) & 0xF;
         print_char(hex_digits[digit]);
     }
-}%
+}
